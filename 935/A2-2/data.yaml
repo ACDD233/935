@@ -1,0 +1,11 @@
+path: D:\uow\935\A2-2\yolo_dataset
+train: train/images
+val: val/images
+test: test/images
+nc: 5
+names:
+- Brown Spot
+- Leaf Scald
+- Rice Blast
+- Rice Tungro
+- Sheath Blight

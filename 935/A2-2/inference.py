@@ -261,7 +261,7 @@ def main():
     print("YOLOv8 Rice Disease Inference")
     print("=" * 40)
     
-    model_path = "outputs/models/rice_disease_detection/weights/best.pt"
+    model_path = "outputs/models/rice_disease_detection3/weights/best.pt"
     
     if not os.path.exists(model_path):
         print(f"Model file not found: {model_path}")
@@ -274,7 +274,7 @@ def main():
     # detections, annotated_image = detector.detect_image('image.jpg')
     
     # Example: directory
-    # detector.detect_batch('image_directory')
+    detector.detect_batch('image_directory')
     
     print("Usage:")
     print("1) Single image:")

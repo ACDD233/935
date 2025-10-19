@@ -1,247 +1,312 @@
-#!/usr/bin/env python3
-"""
-YOLOv8 Rice Disease Detection - Orchestrator
-"""
-
-import os
-import sys
 import argparse
+import sys
 from pathlib import Path
-import subprocess
+
+from config import Config
+from data_preprocessor import prepare_dataset_for_yolo
+from trainer import train_model
+from evaluator import evaluate_model, ModelEvaluator
+from inference import predict
+from feature_visualizer import visualize_features
+from cross_validator import run_cross_validation
 
 
-def check_dataset():
-    """Check dataset layout and required files."""
-    print("Checking dataset...")
-    
-    yolo_dataset = Path("outputs/yolo_dataset")
-    if not yolo_dataset.exists():
-        print(f"Dataset directory not found: {yolo_dataset}")
-        return False
-    
-    required_dirs = ['train/images', 'train/labels', 'val/images', 'val/labels', 'test/images', 'test/labels']
-    for dir_path in required_dirs:
-        full_path = yolo_dataset / dir_path
-        if not full_path.exists():
-            print(f"Missing dataset subdirectory: {full_path}")
-            return False
-    
-    # Check data file
-    data_yaml = Path("data.yaml")
-    if not data_yaml.exists():
-        print(f"Config file not found: {data_yaml}")
-        return False
-    
-    print("Dataset check passed")
-    return True
+def setup_argparse():
+    parser = argparse.ArgumentParser(
+        description='Rice Disease Classification System using YOLOv8s-cls',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  Prepare dataset:
+    python main.py prepare --source ./Dhan-Shomadhan --output ./dataset
 
-def train_model(args):
-    """Train model."""
-    print("Starting training...")
+  Train model:
+    python main.py train --epochs 100 --batch-size 16 --device cuda
 
-    
-    if not check_dataset():
-        return False
-    
-    try:
-        # Run training script using current interpreter
-        result = subprocess.run(
-            [sys.executable, "train_yolov8.py"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-        )
-        if result.returncode == 0:
-            print("Training completed.")
-            print(result.stdout)
-            return True
-        else:
-            print("Training failed.")
-            print(result.stderr)
-            return False
-            
-    except Exception as e:
-        print(f"Error during training: {str(e)}")
-        return False
+  Evaluate model:
+    python main.py evaluate --model ./models/best_model.pt --split test
+    python main.py evaluate --model ./models/best_model.pt --scenarios
 
-def evaluate_model(args):
-    """Evaluate model."""
-    print("Evaluating model...")
-    
-    model_path = "outputs/models/rice_disease_detection6/weights/best.pt"
-    if not os.path.exists(model_path):
-        print(f"Model file not found: {model_path}")
-        print("Train a model first.")
-        return False
-    
-    try:
-        from ultralytics import YOLO
-        
-        # Load model
-        model = YOLO(model_path)
-        
-        # Evaluate
-        metrics = model.val(data="data.yaml")
-        
-        print("Metrics:")
-        print(f"  mAP50: {metrics.box.map50:.4f}")
-        print(f"  mAP50-95: {metrics.box.map:.4f}")
-        print(f"  Precision: {metrics.box.mp:.4f}")
-        print(f"  Recall: {metrics.box.mr:.4f}")
-        
-        return True
-        
-    except Exception as e:
-        print(f"Error during evaluation: {str(e)}")
-        return False
+  Inference:
+    python main.py infer --model ./models/best_model.pt --source ./test_image.jpg --device cpu
+    python main.py infer --model ./models/best_model.pt --source ./test_folder/ --device cuda
 
-def run_inference(args):
-    """Run inference."""
-    print("Running inference...")
-    
-    model_path = "outputs/models/rice_disease_detection8/weights/best.pt"
-    if not os.path.exists(model_path):
-        print(f"Model file not found: {model_path}")
-        print("Train a model first.")
-        return False
-    
-    if not args.input:
-        print("Please provide an input image or directory.")
-        return False
-    
-    try:
-        from inference import RiceDiseaseDetector
-        
-        # Create detector
-        detector = RiceDiseaseDetector(model_path, confidence_threshold=args.confidence)
-        
-        input_path = Path(args.input)
-        
-        if input_path.is_file():
-            # Single image
-            print(f"Image: {input_path}")
-            detections, annotated_image = detector.detect_image(input_path)
-            
-            print(f"Detections: {len(detections)}")
-            for i, det in enumerate(detections, 1):
-                print(f"  {i}. {det['class_name']} (confidence: {det['confidence']:.3f})")
-                
-        elif input_path.is_dir():
-            # Batch
-            print(f"Directory: {input_path}")
-            detector.detect_batch(input_path)
-            
-        else:
-            print(f"Input path not found: {input_path}")
-            return False
-        
-        return True
-        
-    except Exception as e:
-        print(f"Error during inference: {str(e)}")
-        return False
+  Visualize features:
+    python main.py visualize --model ./models/best_model.pt --image ./test_image.jpg
 
-def visualize_results(args):
-    """Visualize results."""
-    print("Visualizing results...")
-    
-    model_path = "outputs/models/rice_disease_detection6/weights/best.pt"
-    if not os.path.exists(model_path):
-        print(f"Model file not found: {model_path}")
-        print("Train a model first.")
-        return False
-    
-    try:
-        # Run visualization script
-        result = subprocess.run(
-            [sys.executable, "visualize_results.py"],
-            capture_output=True,
-            text=True,
-            encoding="utf-8",
-            errors="ignore",
-        )
-        
-        if result.returncode == 0:
-            print("Visualization completed.")
-            print(result.stdout)
-            return True
-        else:
-            print("Visualization failed.")
-            print(result.stderr)
-            return False
-            
-    except Exception as e:
-        print(f"Error during visualization: {str(e)}")
-        return False
+  Cross-validation:
+    python main.py cross-validate --n-folds 5 --epochs 100 --device cuda
+        """
+    )
 
-def main():
-    """CLI entrypoint."""
-    parser = argparse.ArgumentParser(description="YOLOv8 Rice Disease Detection")
-    parser.add_argument("command", choices=["train", "eval", "infer", "visualize", "all"],
-                       help="Operation to run")
-    parser.add_argument("--input", "-i", help="Input image or directory for inference")
-    parser.add_argument("--confidence", "-c", type=float, default=0.5,
-                       help="Confidence threshold (default: 0.5)")
-    
-    args = parser.parse_args()
-    
-    print("YOLOv8 Rice Disease Detection")
-    print("=" * 50)
-    
-    success = True
-    
-    if args.command == "train":
-        success = train_model(args)
-        
-    elif args.command == "eval":
-        success = evaluate_model(args)
-        
-    elif args.command == "infer":
-        success = run_inference(args)
-        
-    elif args.command == "visualize":
-        success = visualize_results(args)
-        
-    elif args.command == "all":
-        print("Running full pipeline...")
-        
-        # 1. Train
-        print("\n1) Train")
-        if not train_model(args):
-            success = False
-            print("Training failed. Aborting.")
-            return
-        
-        # 2. Evaluate
-        print("\n2) Evaluate")
-        if not evaluate_model(args):
-            success = False
-        
-        # 3. Visualize
-        print("\n3) Visualize")
-        if not visualize_results(args):
-            success = False
-        
-        # 4. Example inference
-        print("\n4) Example inference")
-        test_dir = "outputs/yolo_dataset/test/images"
-        if os.path.exists(test_dir):
-            args.input = test_dir
-            if not run_inference(args):
-                success = False
-        else:
-            print(f"Test image directory not found: {test_dir}")
-    
-    if success:
-        print("\nAll operations completed.")
-        print("Artifacts:")
-        print("  - Weights: outputs/models/rice_disease_detection/weights/")
-        print("  - Training: outputs/models/rice_disease_detection/")
-        print("  - Results: outputs/results/")
-    else:
-        print("\nSome operations failed. Check the logs above.")
+    subparsers = parser.add_subparsers(dest='mode', help='Operation mode')
+
+    prepare_parser = subparsers.add_parser('prepare', help='Prepare and split dataset')
+    prepare_parser.add_argument('--source', type=str, default='./Dhan-Shomadhan',
+                               help='Source dataset directory')
+    prepare_parser.add_argument('--output', type=str, default=None,
+                               help='Output directory (default: <source>/processed_data)')
+    prepare_parser.add_argument('--seed', type=int, default=42,
+                               help='Random seed for data splitting')
+
+    train_parser = subparsers.add_parser('train', help='Train classification model')
+    train_parser.add_argument('--epochs', type=int, default=100,
+                             help='Number of training epochs')
+    train_parser.add_argument('--batch-size', type=int, default=16,
+                             help='Batch size for training')
+    train_parser.add_argument('--imgsz', type=int, default=224,
+                             help='Input image size')
+    train_parser.add_argument('--device', type=str, default=None,
+                             help='Device to use (cuda/cpu, default: auto-detect)')
+    train_parser.add_argument('--resume', action='store_true',
+                             help='Resume training from last checkpoint')
+
+    eval_parser = subparsers.add_parser('evaluate', help='Evaluate trained model')
+    eval_parser.add_argument('--model', type=str, required=True,
+                            help='Path to trained model (.pt file)')
+    eval_parser.add_argument('--split', type=str, default='test',
+                            choices=['train', 'val', 'test'],
+                            help='Dataset split to evaluate on')
+    eval_parser.add_argument('--scenarios', action='store_true',
+                            help='Evaluate on different scenarios (white/field/mixed backgrounds)')
+    eval_parser.add_argument('--device', type=str, default=None,
+                            help='Device to use (cuda/cpu)')
+
+    infer_parser = subparsers.add_parser('infer', help='Run inference on images')
+    infer_parser.add_argument('--model', type=str, required=True,
+                             help='Path to trained model (.pt file)')
+    infer_parser.add_argument('--source', type=str, required=True,
+                             help='Path to image file or directory')
+    infer_parser.add_argument('--device', type=str, default='cpu',
+                             help='Device to use (cuda/cpu)')
+    infer_parser.add_argument('--no-save', action='store_true',
+                             help='Do not save prediction results')
+
+    viz_parser = subparsers.add_parser('visualize', help='Visualize learned features')
+    viz_parser.add_argument('--model', type=str, required=True,
+                           help='Path to trained model (.pt file)')
+    viz_parser.add_argument('--image', type=str,
+                           help='Single image for feature visualization')
+    viz_parser.add_argument('--white-bg', type=str,
+                           help='White background image for comparison')
+    viz_parser.add_argument('--field-bg', type=str,
+                           help='Field background image for comparison')
+    viz_parser.add_argument('--device', type=str, default='cuda',
+                           help='Device to use (cuda/cpu)')
+
+    cv_parser = subparsers.add_parser('cross-validate', help='Run K-fold cross-validation')
+    cv_parser.add_argument('--n-folds', type=int, default=5,
+                          help='Number of folds (default: 5)')
+    cv_parser.add_argument('--epochs', type=int, default=100,
+                          help='Number of training epochs per fold')
+    cv_parser.add_argument('--batch-size', type=int, default=16,
+                          help='Batch size for training')
+    cv_parser.add_argument('--device', type=str, default=None,
+                          help='Device to use (cuda/cpu)')
+
+    return parser
+
+
+def run_prepare(args):
+    print("\n" + "="*80)
+    print("DATASET PREPARATION")
+    print("="*80)
+
+    output_dir = args.output if args.output else str(Path(args.source) / 'processed_data')
+
+    splits, stats = prepare_dataset_for_yolo(
+        source_dir=args.source,
+        output_dir=output_dir,
+        seed=args.seed
+    )
+
+    print("\n✓ Dataset preparation completed successfully")
+    print(f"  Processed dataset saved to: {output_dir}")
+    print(f"  Location: Under main dataset folder as required")
+    print("\nNext step: Train the model using:")
+    print("  python main.py train --epochs 100 --batch-size 16 --device cuda")
+
+
+def run_train(args):
+    print("\n" + "="*80)
+    print("MODEL TRAINING")
+    print("="*80)
+
+    if not Config.PROCESSED_DIR.exists():
+        print(f"\n✗ Error: Processed dataset not found at {Config.PROCESSED_DIR}")
+        print("Please run dataset preparation first:")
+        print("  python main.py prepare")
         sys.exit(1)
 
-if __name__ == "__main__":
+    Config.ensure_directories()
+
+    trainer, results = train_model(
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        imgsz=args.imgsz,
+        device=args.device,
+        resume=args.resume
+    )
+
+    print("\n✓ Training completed successfully")
+    print(f"  Best model saved to: {Config.MODELS_DIR / 'best_model.pt'}")
+    print("\nNext steps:")
+    print("  1. Evaluate model:")
+    print("     python main.py evaluate --model ./models/best_model.pt --scenarios")
+    print("  2. Run inference:")
+    print("     python main.py infer --model ./models/best_model.pt --source <image_path>")
+
+
+def run_evaluate(args):
+    print("\n" + "="*80)
+    print("MODEL EVALUATION")
+    print("="*80)
+
+    if not Path(args.model).exists():
+        print(f"\n✗ Error: Model not found at {args.model}")
+        sys.exit(1)
+
+    if not Config.PROCESSED_DIR.exists():
+        print(f"\n✗ Error: Processed dataset not found at {Config.PROCESSED_DIR}")
+        print("Please run dataset preparation first:")
+        print("  python main.py prepare")
+        sys.exit(1)
+
+    if args.device:
+        Config.DEVICE = args.device
+
+    evaluator = ModelEvaluator(args.model, device=Config.DEVICE)
+
+    if args.scenarios:
+        results = evaluator.evaluate_scenarios()
+        print("\n✓ Scenario evaluation completed successfully")
+    else:
+        results = evaluator.evaluate_on_split(args.split)
+        print(f"\n✓ Evaluation on {args.split} split completed successfully")
+
+    print("\nResults saved to:", Config.RESULTS_DIR)
+
+
+def run_inference(args):
+    print("\n" + "="*80)
+    print("INFERENCE")
+    print("="*80)
+
+    if not Path(args.model).exists():
+        print(f"\n✗ Error: Model not found at {args.model}")
+        sys.exit(1)
+
+    if not Path(args.source).exists():
+        print(f"\n✗ Error: Source not found at {args.source}")
+        sys.exit(1)
+
+    save_results = not args.no_save
+
+    predictions = predict(
+        model_path=args.model,
+        source=args.source,
+        device=args.device,
+        save_results=save_results
+    )
+
+    print("\n✓ Inference completed successfully")
+    if save_results:
+        print(f"  Results saved to: {Config.RESULTS_DIR / 'predictions'}")
+
+
+def run_visualize(args):
+    print("\n" + "="*80)
+    print("FEATURE VISUALIZATION")
+    print("="*80)
+
+    if not Path(args.model).exists():
+        print(f"\n✗ Error: Model not found at {args.model}")
+        sys.exit(1)
+
+    if args.image and not Path(args.image).exists():
+        print(f"\n✗ Error: Image not found at {args.image}")
+        sys.exit(1)
+
+    if args.white_bg and not Path(args.white_bg).exists():
+        print(f"\n✗ Error: White background image not found at {args.white_bg}")
+        sys.exit(1)
+
+    if args.field_bg and not Path(args.field_bg).exists():
+        print(f"\n✗ Error: Field background image not found at {args.field_bg}")
+        sys.exit(1)
+
+    visualize_features(
+        model_path=args.model,
+        image_path=args.image,
+        white_bg_image=args.white_bg,
+        field_bg_image=args.field_bg,
+        device=args.device
+    )
+
+    print("\n✓ Feature visualization completed successfully")
+    print(f"  Results saved to: {Config.RESULTS_DIR / 'feature_visualization'}")
+
+
+def run_cross_validate(args):
+    print("\n" + "="*80)
+    print(f"{args.n_folds}-FOLD CROSS-VALIDATION")
+    print("="*80)
+
+    if not Config.DATASET_DIR.exists():
+        print(f"\n✗ Error: Dataset not found at {Config.DATASET_DIR}")
+        print("Please ensure the dataset is in ./Dhan-Shomadhan/ directory")
+        sys.exit(1)
+
+    Config.ensure_directories()
+
+    fold_results, statistics = run_cross_validation(
+        n_folds=args.n_folds,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+        device=args.device
+    )
+
+    print("\n✓ Cross-validation completed successfully")
+    print(f"\nFinal Results (Mean ± Std):")
+    print(f"  Test set:         {statistics['test_set']['mean']:.4f} ± {statistics['test_set']['std']:.4f}")
+    print(f"  White background: {statistics['white_background']['mean']:.4f} ± {statistics['white_background']['std']:.4f}")
+    print(f"  Field background: {statistics['field_background']['mean']:.4f} ± {statistics['field_background']['std']:.4f}")
+    print(f"  Mixed:            {statistics['mixed']['mean']:.4f} ± {statistics['mixed']['std']:.4f}")
+
+
+def main():
+    parser = setup_argparse()
+    args = parser.parse_args()
+
+    if args.mode is None:
+        parser.print_help()
+        sys.exit(0)
+
+    try:
+        if args.mode == 'prepare':
+            run_prepare(args)
+        elif args.mode == 'train':
+            run_train(args)
+        elif args.mode == 'evaluate':
+            run_evaluate(args)
+        elif args.mode == 'infer':
+            run_inference(args)
+        elif args.mode == 'visualize':
+            run_visualize(args)
+        elif args.mode == 'cross-validate':
+            run_cross_validate(args)
+        else:
+            parser.print_help()
+
+    except KeyboardInterrupt:
+        print("\n\nOperation interrupted by user")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n✗ Error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
+
+if __name__ == '__main__':
     main()

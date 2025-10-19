@@ -1,287 +1,266 @@
-#!/usr/bin/env python3
-"""
-YOLOv8 Rice Disease Detection - Inference
-"""
-
 import os
+from pathlib import Path
+from ultralytics import YOLO
+import torch
 import cv2
 import numpy as np
-from ultralytics import YOLO
-from pathlib import Path
-import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 from PIL import Image
-import torch
+import matplotlib.pyplot as plt
+from datetime import datetime
 
-class RiceDiseaseDetector:
-    """Rice disease object detector."""
-    
-    def __init__(self, model_path, confidence_threshold=0.5):
-        """
-        Initialize detector.
-        
-        Args:
-            model_path: Path to trained model weights.
-            confidence_threshold: Confidence threshold for predictions.
-        """
-        self.model = YOLO(model_path)
-        self.confidence_threshold = confidence_threshold
-        
-        # Class names and colors
-        self.class_names = ['Brown Spot', 'Leaf Scald', 'Rice Blast', 'Rice Tungro', 'Sheath Blight']
-        self.colors = [
-            (255, 0, 0),
-            (0, 255, 0),
-            (0, 0, 255),
-            (255, 255, 0),
-            (255, 0, 255)
-        ]
-    
-    def detect_image(self, image_path, save_result=True, output_dir="outputs/results"):
-        """
-        Run detection for a single image.
-        
-        Args:
-            image_path: Image path.
-            save_result: Whether to save annotated result.
-            output_dir: Output directory.
-            
-        Returns:
-            detections: List of detection dicts.
-            annotated_image: Image with drawn detections.
-        """
-        print(f"Detecting: {image_path}")
-        
-        # Load image
-        image = cv2.imread(str(image_path))
-        if image is None:
-            raise ValueError(f"Failed to load image: {image_path}")
-        
-        # Inference
-        results = self.model(image, conf=self.confidence_threshold)
-        
-        # Parse results
-        detections = []
-        for result in results:
-            boxes = result.boxes
-            if boxes is not None:
-                for i, box in enumerate(boxes):
-                    # Get bounding box
-                    x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                    confidence = box.conf[0].cpu().numpy()
-                    class_id = int(box.cls[0].cpu().numpy())
-                    
-                    detections.append({
-                        'bbox': [int(x1), int(y1), int(x2), int(y2)],
-                        'confidence': float(confidence),
-                        'class_id': class_id,
-                        'class_name': self.class_names[class_id]
-                    })
-        
-        # Draw detections
-        annotated_image = self.draw_detections(image.copy(), detections)
-        
-        # Save results
+from config import Config
+
+
+class DiseasePredictor:
+    def __init__(self, model_path, device=None, conf_threshold=0.5):
+        self.model_path = Path(model_path)
+        self.device = device if device is not None else 'cpu'
+        self.conf_threshold = conf_threshold
+
+        if not self.model_path.exists():
+            raise FileNotFoundError(f"Model not found at {self.model_path}")
+
+        print(f"Loading model from: {self.model_path}")
+        print(f"Using device: {self.device}")
+
+        self.model = YOLO(str(self.model_path))
+        self.class_names = Config.CLASS_NAMES
+
+    def predict_single(self, image_path, save_result=False, output_dir=None):
+        image_path = Path(image_path)
+
+        if not image_path.exists():
+            raise FileNotFoundError(f"Image not found: {image_path}")
+
+        print(f"\nPredicting: {image_path.name}")
+
+        results = self.model.predict(
+            source=str(image_path),
+            device=self.device,
+            verbose=False
+        )[0]
+
+        prediction = self._parse_prediction(results)
+
+        print(f"Predicted class: {prediction['class_name']}")
+        print(f"Confidence: {prediction['confidence']:.4f}")
+
         if save_result:
-            output_path = Path(output_dir)
-            output_path.mkdir(parents=True, exist_ok=True)
-            
-            # Save annotated image
-            image_name = Path(image_path).stem
-            result_path = output_path / f"{image_name}_detected.jpg"
-            cv2.imwrite(str(result_path), annotated_image)
-            print(f"Saved annotated image: {result_path}")
-            
-            # Save detection info
-            info_path = output_path / f"{image_name}_info.txt"
-            with open(info_path, 'w', encoding='utf-8') as f:
-                f.write(f"Image: {image_path}\n")
-                f.write(f"Detections: {len(detections)}\n\n")
-                for i, det in enumerate(detections, 1):
-                    f.write(f"{i}. {det['class_name']}\n")
-                    f.write(f"   confidence: {det['confidence']:.3f}\n")
-                    f.write(f"   bbox: {det['bbox']}\n\n")
-            print(f"Saved detection info: {info_path}")
-        
-        return detections, annotated_image
-    
-    def detect_batch(self, image_dir, output_dir="outputs/results"):
-        """
-        Run detection on a directory of images.
-        
-        Args:
-            image_dir: Directory containing images.
-            output_dir: Output directory.
-        """
-        image_dir = Path(image_dir)
-        if not image_dir.exists():
-            raise ValueError(f"Image directory not found: {image_dir}")
-        
-        # Supported image extensions
-        image_extensions = ['.jpg', '.jpeg', '.png', '.bmp', '.tiff']
-        image_files = []
-        for ext in image_extensions:
-            image_files.extend(image_dir.glob(f'*{ext}'))
-            image_files.extend(image_dir.glob(f'*{ext.upper()}'))
-        
+            if output_dir is None:
+                output_dir = Config.RESULTS_DIR / 'predictions'
+            output_dir = Path(output_dir)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            self._save_prediction_visualization(image_path, prediction, output_dir)
+
+        return prediction
+
+    def predict_folder(self, folder_path, save_results=True, output_dir=None):
+        folder_path = Path(folder_path)
+
+        if not folder_path.exists():
+            raise FileNotFoundError(f"Folder not found: {folder_path}")
+
+        image_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff'}
+        image_files = [f for f in folder_path.iterdir()
+                      if f.suffix.lower() in image_extensions]
+
         if not image_files:
-            print(f"No images found in: {image_dir}")
-            return
-        
-        print(f"Found {len(image_files)} images. Running batch inference...")
-        
-        all_results = []
-        for i, image_path in enumerate(image_files, 1):
-            print(f"\n[{i}/{len(image_files)}] Processing: {image_path.name}")
+            print(f"No images found in {folder_path}")
+            return []
+
+        print(f"\nFound {len(image_files)} images in {folder_path}")
+        print(f"Starting batch prediction...\n")
+
+        if output_dir is None:
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            output_dir = Config.RESULTS_DIR / f'predictions_{timestamp}'
+        output_dir = Path(output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+
+        predictions = []
+
+        for idx, image_path in enumerate(image_files, 1):
+            print(f"[{idx}/{len(image_files)}] Processing: {image_path.name}")
+
             try:
-                detections, _ = self.detect_image(image_path, save_result=True, output_dir=output_dir)
-                all_results.append({
-                    'image_path': str(image_path),
-                    'detections': detections
-                })
+                pred = self.predict_single(image_path, save_result=False)
+                pred['image_path'] = str(image_path)
+                predictions.append(pred)
+
             except Exception as e:
-                print(f"Error processing {image_path}: {str(e)}")
-        
-        # Save batch summary
-        self.save_batch_summary(all_results, output_dir)
-        print(f"\nBatch inference complete. Results saved to: {output_dir}")
-    
-    def draw_detections(self, image, detections):
-        """
-        Draw detections on image.
-        
-        Args:
-            image: Input image (BGR).
-            detections: Detection list produced by detect_image.
-            
-        Returns:
-            Annotated image.
-        """
-        for det in detections:
-            x1, y1, x2, y2 = det['bbox']
-            confidence = det['confidence']
-            class_id = det['class_id']
-            class_name = det['class_name']
-            
-            # Color by class
-            color = self.colors[class_id % len(self.colors)]
-            
-            # Box
-            cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
-            
-            # Label
-            label = f"{class_name}: {confidence:.2f}"
-            label_size = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 2)[0]
-            
-            # Label bg
-            cv2.rectangle(image, (x1, y1 - label_size[1] - 10), 
-                         (x1 + label_size[0], y1), color, -1)
-            
-            # Label text
-            cv2.putText(image, label, (x1, y1 - 5), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
-        
-        return image
-    
-    def save_batch_summary(self, all_results, output_dir):
-        """Write aggregated batch summary to a text file."""
-        summary_path = Path(output_dir) / "batch_summary.txt"
-        
-        with open(summary_path, 'w', encoding='utf-8') as f:
-            f.write("Batch Inference Summary\n")
-            f.write("=" * 50 + "\n\n")
-            
-            total_detections = 0
-            class_counts = {name: 0 for name in self.class_names}
-            class_conf_sums = {name: 0.0 for name in self.class_names}
-            all_confidences = []
-            images_with_detections = 0
-            
-            for result in all_results:
-                image_path = Path(result['image_path']).name
-                detections = result['detections']
-                
-                f.write(f"Image: {image_path}\n")
-                f.write(f"Detections: {len(detections)}\n")
-                
-                for det in detections:
-                    class_name = det['class_name']
-                    confidence = det['confidence']
-                    f.write(f"  - {class_name} (confidence: {confidence:.3f})\n")
-                    class_counts[class_name] += 1
-                    class_conf_sums[class_name] += float(confidence)
-                    total_detections += 1
-                    all_confidences.append(float(confidence))
-                
-                f.write("\n")
-                if len(detections) > 0:
-                    images_with_detections += 1
-            
-            f.write("Summary:\n")
-            f.write("-" * 30 + "\n")
-            f.write(f"Total images: {len(all_results)}\n")
-            f.write(f"Total detections: {total_detections}\n\n")
-            f.write("Detections per class:\n")
-            for class_name, count in class_counts.items():
-                f.write(f"  {class_name}: {count}\n")
-            
-            # Additional stats
-            f.write("\nAdditional statistics:\n")
-            f.write("-" * 30 + "\n")
-            total_images = len(all_results)
-            images_without_detections = total_images - images_with_detections
-            avg_detections_per_image = (total_detections / total_images) if total_images > 0 else 0.0
-            f.write(f"Images with detections: {images_with_detections}\n")
-            f.write(f"Images without detections: {images_without_detections}\n")
-            f.write(f"Avg detections per image: {avg_detections_per_image:.3f}\n")
-            
-            if len(all_confidences) > 0:
-                overall_avg = float(np.mean(all_confidences))
-                overall_med = float(np.median(all_confidences))
-                overall_min = float(np.min(all_confidences))
-                overall_max = float(np.max(all_confidences))
-                f.write(f"Overall avg confidence: {overall_avg:.4f}\n")
-                f.write(f"Overall median confidence: {overall_med:.4f}\n")
-                f.write(f"Min confidence: {overall_min:.4f}\n")
-                f.write(f"Max confidence: {overall_max:.4f}\n")
-                
-                f.write("\nAvg confidence per class:\n")
-                for class_name in self.class_names:
-                    cnt = class_counts[class_name]
-                    if cnt > 0:
-                        avg_conf = class_conf_sums[class_name] / cnt
-                        f.write(f"  {class_name}: {avg_conf:.4f}\n")
-                    else:
-                        f.write(f"  {class_name}: no detections\n")
-        
-        print(f"Saved batch summary: {summary_path}")
+                print(f"Error processing {image_path.name}: {e}")
+                continue
 
-def main():
-    """Example usage."""
-    print("YOLOv8 Rice Disease Inference")
-    print("=" * 40)
-    
-    model_path = "outputs/models/rice_disease_detection/weights/best.pt"
-    
-    if not os.path.exists(model_path):
-        print(f"Model file not found: {model_path}")
-        print("Run train_yolov8.py to train a model first.")
-        return
-    
-    detector = RiceDiseaseDetector(model_path, confidence_threshold=0.5)
-    
-    # Example: single image
-    # detections, annotated_image = detector.detect_image('image.jpg')
-    
-    # Example: directory
-    # detector.detect_batch('image_directory')
-    
-    print("Usage:")
-    print("1) Single image:")
-    print("   detector = RiceDiseaseDetector(model_path)")
-    print("   detections, image = detector.detect_image('image.jpg')")
-    print("\n2) Batch:")
-    print("   detector.detect_batch('image_directory')")
+        if save_results:
+            self._save_batch_results(predictions, image_files, output_dir)
 
-if __name__ == "__main__":
-    main()
+        self._print_summary(predictions)
+
+        return predictions
+
+    def _parse_prediction(self, results):
+        probs = results.probs
+
+        top1_idx = probs.top1
+        top1_conf = probs.top1conf.item()
+
+        top5_indices = probs.top5
+        top5_confs = probs.top5conf.tolist()
+
+        # Extract only Top-2 predictions
+        top2_indices = top5_indices[:2]
+        top2_confs = top5_confs[:2]
+
+        prediction = {
+            'class_id': int(top1_idx),
+            'class_name': self.class_names[top1_idx],
+            'confidence': float(top1_conf),
+            'top2_classes': [
+                {
+                    'class_id': int(idx),
+                    'class_name': self.class_names[idx],
+                    'confidence': float(conf)
+                }
+                for idx, conf in zip(top2_indices, top2_confs)
+            ]
+        }
+
+        return prediction
+
+    def _save_prediction_visualization(self, image_path, prediction, output_dir):
+        image = cv2.imread(str(image_path))
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 6))
+
+        ax1.imshow(image)
+        ax1.axis('off')
+        ax1.set_title(f'Input Image: {image_path.name}', fontsize=12)
+
+        classes = [item['class_name'] for item in prediction['top2_classes']]
+        confidences = [item['confidence'] for item in prediction['top2_classes']]
+
+        colors = ['#2ecc71' if i == 0 else '#3498db' for i in range(len(classes))]
+
+        y_pos = np.arange(len(classes))
+        ax2.barh(y_pos, confidences, color=colors)
+        ax2.set_yticks(y_pos)
+        ax2.set_yticklabels(classes)
+        ax2.invert_yaxis()
+        ax2.set_xlabel('Confidence', fontsize=11)
+        ax2.set_title('Top-2 Predictions', fontsize=12, fontweight='bold')
+        ax2.set_xlim(0, 1.0)
+
+        for i, v in enumerate(confidences):
+            ax2.text(v + 0.02, i, f'{v:.3f}', va='center', fontsize=9)
+
+        plt.tight_layout()
+
+        output_path = output_dir / f'pred_{image_path.stem}.png'
+        plt.savefig(output_path, dpi=150, bbox_inches='tight')
+        plt.close()
+
+        print(f"Visualization saved: {output_path}")
+
+    def _save_batch_results(self, predictions, image_files, output_dir):
+        results_file = output_dir / 'predictions.txt'
+
+        with open(results_file, 'w') as f:
+            f.write(f"Rice Disease Classification Results\n")
+            f.write(f"{'='*80}\n")
+            f.write(f"Total images: {len(image_files)}\n")
+            f.write(f"Successful predictions: {len(predictions)}\n")
+            f.write(f"{'='*80}\n\n")
+
+            for pred in predictions:
+                f.write(f"Image: {Path(pred['image_path']).name}\n")
+                f.write(f"Predicted: {pred['class_name']} (confidence: {pred['confidence']:.4f})\n")
+                f.write(f"\n")
+
+        print(f"\nResults saved to: {results_file}")
+
+        self._plot_class_distribution(predictions, output_dir)
+
+    def _plot_class_distribution(self, predictions, output_dir):
+        class_counts = {name: 0 for name in self.class_names}
+
+        for pred in predictions:
+            class_counts[pred['class_name']] += 1
+
+        plt.figure(figsize=(12, 6))
+        classes = list(class_counts.keys())
+        counts = list(class_counts.values())
+
+        bars = plt.bar(classes, counts, color='#3498db', edgecolor='black', linewidth=1.2)
+        plt.xlabel('Disease Class', fontsize=12)
+        plt.ylabel('Number of Predictions', fontsize=12)
+        plt.title('Distribution of Predicted Classes', fontsize=14, fontweight='bold')
+        plt.xticks(rotation=45, ha='right')
+
+        for bar in bars:
+            height = bar.get_height()
+            plt.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{int(height)}',
+                    ha='center', va='bottom', fontsize=10)
+
+        plt.tight_layout()
+
+        plot_path = output_dir / 'class_distribution.png'
+        plt.savefig(plot_path, dpi=300, bbox_inches='tight')
+        plt.close()
+
+        print(f"Class distribution plot saved: {plot_path}")
+
+    def _print_summary(self, predictions):
+        if not predictions:
+            print("\nNo successful predictions.")
+            return
+
+        print(f"\n{'='*60}")
+        print(f"Prediction Summary")
+        print(f"{'='*60}")
+
+        class_counts = {}
+        for pred in predictions:
+            class_name = pred['class_name']
+            class_counts[class_name] = class_counts.get(class_name, 0) + 1
+
+        for class_name in sorted(class_counts.keys()):
+            count = class_counts[class_name]
+            percentage = (count / len(predictions)) * 100
+            print(f"{class_name}: {count} ({percentage:.1f}%)")
+
+        avg_confidence = np.mean([p['confidence'] for p in predictions])
+        print(f"\nAverage confidence: {avg_confidence:.4f}")
+        print(f"{'='*60}")
+
+
+def predict(model_path, source, device='cpu', save_results=True):
+    predictor = DiseasePredictor(model_path, device=device)
+
+    source_path = Path(source)
+
+    if source_path.is_file():
+        return predictor.predict_single(source_path, save_result=save_results)
+    elif source_path.is_dir():
+        return predictor.predict_folder(source_path, save_results=save_results)
+    else:
+        raise ValueError(f"Invalid source: {source}. Must be a file or directory.")
+
+
+if __name__ == '__main__':
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Predict rice disease from images')
+    parser.add_argument('--model', type=str, required=True, help='Path to trained model')
+    parser.add_argument('--source', type=str, required=True,
+                        help='Path to image file or folder')
+    parser.add_argument('--device', type=str, default='cpu',
+                        help='Device to use (cuda/cpu)')
+    parser.add_argument('--save', action='store_true', default=True,
+                        help='Save prediction results')
+
+    args = parser.parse_args()
+
+    predict(args.model, args.source, args.device, args.save)

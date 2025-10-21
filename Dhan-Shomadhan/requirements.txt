@@ -1,7 +1,7 @@
 # Deep learning frameworks
---index-url https://download.pytorch.org/whl/cu121
-torch>=2.5.1
-torchvision>=0.15.0
+--extra-index-url https://download.pytorch.org/whl/cu121
+torch==2.5.1
+torchvision>=0.20.1
 
 # YOLO
 ultralytics>=8.0.0

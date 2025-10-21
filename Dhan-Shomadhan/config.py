@@ -7,7 +7,7 @@ import os
 from datetime import datetime
 
 
-def detect_background_folders(source_dir='.'):
+def detect_background_folders(source_dir='./Dhan-Shomadhan'):
     """
     Auto-detect Field Background and White Background folder names
     Handles cross-platform spacing differences
@@ -40,7 +40,7 @@ class Config:
     """Configuration class for all training, testing and visualization parameters"""
 
     def __init__(self):
-        self.source_data_dir = '.'
+        self.source_data_dir = './Dhan-Shomadhan'
 
         # Auto-detect background folders
         field_folder, white_folder = detect_background_folders(self.source_data_dir)
@@ -95,7 +95,7 @@ class Config:
         self.mixup = 0.0
 
         # Training configuration
-        self.cache = True
+        self.cache = False
         self.workers = 8
         self.verbose = True
         self.save = True
@@ -152,7 +152,7 @@ def parse_args():
     parser.add_argument('--mode', type=str, default='all',
                         choices=['split', 'train', 'test', 'visualize', 'all'],
                         help='Run mode')
-    parser.add_argument('--source_data_dir', type=str, default='.',
+    parser.add_argument('--source_data_dir', type=str, default='./Dhan-Shomadhan',
                         help='Source data directory')
     parser.add_argument('--random_seed', type=int, default=42,
                         help='Random seed for reproducibility')
@@ -190,7 +190,7 @@ def parse_args():
     parser.add_argument('--mixup', type=float, default=0.0)
 
     # Training configuration
-    parser.add_argument('--cache', action='store_true', default=True)
+    parser.add_argument('--cache', action='store_true', default=False)
     parser.add_argument('--no_cache', action='store_false', dest='cache')
     parser.add_argument('--workers', type=int, default=8)
     parser.add_argument('--verbose', action='store_true', default=True)

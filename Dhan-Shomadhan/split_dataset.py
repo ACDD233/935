@@ -35,9 +35,8 @@ class DatasetSplitter:
 
         if not os.path.exists(self.source_data_dir):
             raise FileNotFoundError(f"Source directory not found: {self.source_data_dir}")
-
-        image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.gif',
-                            '*.JPG', '*.JPEG', '*.PNG', '*.BMP', '*.GIF']
+        print(f"Source directory found: {self.source_data_dir}")
+        image_extensions = ['*.jpg', '*.jpeg', '*.png', '*.bmp', '*.gif']
 
         # Process each background folder
         for bg_folder in self.background_folders:

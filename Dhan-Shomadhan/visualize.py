@@ -12,7 +12,6 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from ultralytics import YOLO
 import random
-from yolo_gradcam import YOLOGradCAM
 
 
 class GradCAMVisualizer:
@@ -85,6 +84,10 @@ class GradCAMVisualizer:
                 self.model = model
             
             def forward(self, x):
+                # 确保输入需要梯度
+                if not x.requires_grad:
+                    x = x.requires_grad_(True)
+                
                 output = self.model(x)
                 # 如果输出是元组，只返回第一个元素（主输出）
                 if isinstance(output, tuple):
@@ -124,6 +127,9 @@ class GradCAMVisualizer:
             # 预处理图像
             img_tensor, img_resized, original_size = self._preprocess_for_api(image_path, device)
             
+            # 确保输入张量需要梯度计算
+            img_tensor.requires_grad_(True)
+            
             # 生成 CAM
             grayscale_cam = cam(input_tensor=img_tensor, targets=target_class)
             
@@ -146,21 +152,9 @@ class GradCAMVisualizer:
         except Exception as e:
             print(f"  pytorch-grad-cam API failed for {os.path.basename(image_path)}: {e}")
         
-        # 方法2: 使用自定义的 YOLO Grad-CAM
-        try:
-            yolo_gradcam = YOLOGradCAM(model.ckpt_path, device='cuda' if torch.cuda.is_available() else 'cpu')
-            gradcam_map, pred_probs, pred_class = yolo_gradcam.generate_gradcam(image_path, target_class)
-            
-            if gradcam_map is not None:
-                print(f"  Successfully generated custom YOLO attention for {os.path.basename(image_path)}")
-                return gradcam_map, pred_probs, pred_class
-            else:
-                print(f"  Custom YOLO attention failed for {os.path.basename(image_path)}, trying fallback")
-                return self.generate_gradcam_fallback(model, image_path, target_class)
-                
-        except Exception as e:
-            print(f"  Custom YOLO attention error for {os.path.basename(image_path)}: {e}")
-            return self.generate_gradcam_fallback(model, image_path, target_class)
+        # 方法2: 使用原始实现 (备用)
+        print(f"  pytorch-grad-cam API failed for {os.path.basename(image_path)}, trying fallback")
+        return self.generate_gradcam_fallback(model, image_path, target_class)
     
     def generate_gradcam_fallback(self, model, image_path, target_class=None):
         """Fallback Grad-CAM method (original implementation)"""
@@ -336,8 +330,7 @@ def visualize_gradcam(config, fold_num=None):
     print("="*60)
     print("This visualization uses two methods to generate Grad-CAM heatmaps:")
     print("1. pytorch-grad-cam API (recommended)")
-    print("2. Custom YOLO attention mechanism")
-    print("3. Fallback method (original implementation)")
+    print("2. Fallback method (original implementation)")
     print("="*60)
     
     visualizer = GradCAMVisualizer(config)

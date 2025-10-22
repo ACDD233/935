@@ -126,9 +126,17 @@ class GradCAMVisualizer:
 
         axes[2].imshow(superimposed)
 
-        pred_class = prediction.argmax()
-        pred_conf = prediction[pred_class]
-        title = f'Prediction: {class_names[pred_class]}\nConfidence: {pred_conf:.3f}'
+        # Check if prediction is valid (not None)
+        if prediction is not None:
+            pred_class = prediction.argmax()
+            pred_conf = prediction[pred_class]
+            title = f'Prediction: {class_names[pred_class]}\nConfidence: {pred_conf:.3f}'
+        else:
+            # Fallback when prediction is None
+            pred_class = 0
+            pred_conf = 0.0
+            title = 'Prediction: Failed\nConfidence: N/A'
+        
         axes[2].set_title(title)
         axes[2].axis('off')
 
@@ -178,6 +186,8 @@ class GradCAMVisualizer:
                         save_name = f"{class_name}_{os.path.splitext(img_file)[0]}_gradcam.png"
                         save_path = os.path.join(fold_vis_dir, save_name)
                         self.visualize_cam(img_path, heatmap, prediction, class_names, save_path)
+                    else:
+                        print(f"  Skipped {img_file}: Failed to generate heatmap")
 
                 except Exception as e:
                     print(f"  Failed {img_file}: {e}")

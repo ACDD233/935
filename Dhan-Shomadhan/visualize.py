@@ -181,17 +181,17 @@ class GradCAMVisualizer:
                     print(f"  Main output type: {type(main_output)}")
                 
                 if hasattr(main_output, 'probs'):
-                    pred_probs = main_output.probs.data.numpy()
+                    pred_probs = main_output.probs.data.cpu().numpy()
                     pred_class = main_output.probs.top1
                 else:
                     # 确保 main_output 是张量
                     if isinstance(main_output, torch.Tensor):
-                        pred_probs = torch.softmax(main_output, dim=1).detach().numpy()[0]
+                        pred_probs = torch.softmax(main_output, dim=1).detach().cpu().numpy()[0]
                         pred_class = main_output.argmax(dim=1).item()
                     else:
                         # 如果仍然不是张量，使用包装器获取输出
                         wrapped_output = wrapped_model(img_tensor)
-                        pred_probs = torch.softmax(wrapped_output, dim=1).detach().numpy()[0]
+                        pred_probs = torch.softmax(wrapped_output, dim=1).detach().cpu().numpy()[0]
                         pred_class = wrapped_output.argmax(dim=1).item()
             
             print(f"  Successfully generated Grad-CAM using pytorch-grad-cam API for {os.path.basename(image_path)}")

@@ -62,12 +62,12 @@ def test_yolo_output_handling():
             
             if hasattr(main_output, 'probs'):
                 print("✅ 使用 probs 属性获取预测")
-                pred_probs = main_output.probs.data.numpy()
+                pred_probs = main_output.probs.data.cpu().numpy()
                 pred_class = main_output.probs.top1
             else:
                 if isinstance(main_output, torch.Tensor):
                     print("✅ 使用张量 softmax 获取预测")
-                    pred_probs = torch.softmax(main_output, dim=1).detach().numpy()[0]
+                    pred_probs = torch.softmax(main_output, dim=1).detach().cpu().numpy()[0]
                     pred_class = main_output.argmax(dim=1).item()
                 else:
                     print("❌ 主输出既不是张量也没有 probs 属性")

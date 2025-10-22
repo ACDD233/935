@@ -18,7 +18,11 @@ def test_yolo_output_handling():
         yolo_model = YOLO(model_path)
         torch_model = yolo_model.model
         torch_model.eval()
-        print("✅ YOLO 模型加载成功")
+        
+        # 确保模型在正确的设备上
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        torch_model = torch_model.to(device)
+        print(f"✅ YOLO 模型加载成功，设备: {device}")
     except Exception as e:
         print(f"❌ YOLO 模型加载失败: {e}")
         return False

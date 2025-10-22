@@ -87,8 +87,15 @@ class GradCAMVisualizer:
                 self.model = model
                 # 确保模型支持梯度计算
                 self.model.train()  # 临时设置为训练模式以支持梯度
+                # 确保模型在正确的设备上
+                self.device = next(model.parameters()).device
+                self.model = self.model.to(self.device)
             
             def forward(self, x):
+                # 确保输入在正确的设备上
+                if x.device != self.device:
+                    x = x.to(self.device)
+                
                 # 确保输入需要梯度
                 if not x.requires_grad:
                     x = x.requires_grad_(True)
@@ -116,7 +123,7 @@ class GradCAMVisualizer:
             torch_model = model.model
             
             # 确保模型在正确的设备上
-            device = 'cuda' if torch.cuda.is_available() else 'cpu'
+            device = next(model.parameters()).device
             torch_model = torch_model.to(device)
             
             # 找到目标层
@@ -143,6 +150,11 @@ class GradCAMVisualizer:
             print(f"  Input tensor device: {img_tensor.device}")
             print(f"  Input tensor dtype: {img_tensor.dtype}")
             print(f"  Input tensor shape: {img_tensor.shape}")
+            
+            # 验证模型设备
+            model_device = next(torch_model.parameters()).device
+            print(f"  Model device: {model_device}")
+            print(f"  Device match: {img_tensor.device == model_device}")
             
             # 在梯度计算上下文中生成 CAM
             with torch.enable_grad():

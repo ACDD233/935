@@ -57,22 +57,25 @@ class GradCAMVisualizer:
         return None
 
     def _preprocess_for_api(self, image_path, device):
-        """为 API 预处理图像"""
+        """为 API 预处理图像，确保符合 YOLO 模型要求"""
         img = cv2.imread(str(image_path))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
         
         # 保存原始尺寸
         original_size = img.shape[:2]
         
-        # 调整尺寸
+        # 调整尺寸到模型期望的尺寸
         img_resized = cv2.resize(img, (self.config.imgsz, self.config.imgsz))
         
-        # 归一化
+        # 归一化到 [0, 1] 范围
         img_normalized = img_resized.astype(np.float32) / 255.0
         
-        # 转换为张量
+        # 转换为张量并调整维度顺序 (H, W, C) -> (C, H, W)
         img_tensor = torch.from_numpy(img_normalized).permute(2, 0, 1).unsqueeze(0)
         img_tensor = img_tensor.to(device)
+        
+        # 确保张量类型正确
+        img_tensor = img_tensor.float()
         
         return img_tensor, img_resized, original_size
 
@@ -82,19 +85,25 @@ class GradCAMVisualizer:
             def __init__(self, model):
                 super(ModelWrapper, self).__init__()
                 self.model = model
+                # 确保模型支持梯度计算
+                self.model.train()  # 临时设置为训练模式以支持梯度
             
             def forward(self, x):
                 # 确保输入需要梯度
                 if not x.requires_grad:
                     x = x.requires_grad_(True)
                 
-                output = self.model(x)
+                # 使用 torch.enable_grad() 确保梯度计算
+                with torch.enable_grad():
+                    output = self.model(x)
+                
                 # 如果输出是元组，只返回第一个元素（主输出）
                 if isinstance(output, tuple):
                     return output[0]
                 return output
         
-        return ModelWrapper(torch_model)
+        wrapper = ModelWrapper(torch_model)
+        return wrapper
 
     def generate_gradcam(self, model, image_path, target_class=None):
         """Generate Grad-CAM heatmap using pytorch-grad-cam API and custom YOLO implementation"""
@@ -105,7 +114,6 @@ class GradCAMVisualizer:
             
             # 获取 PyTorch 模型
             torch_model = model.model
-            torch_model.eval()
             
             # 确保模型在正确的设备上
             device = 'cuda' if torch.cuda.is_available() else 'cpu'
@@ -130,8 +138,17 @@ class GradCAMVisualizer:
             # 确保输入张量需要梯度计算
             img_tensor.requires_grad_(True)
             
-            # 生成 CAM
-            grayscale_cam = cam(input_tensor=img_tensor, targets=target_class)
+            # 验证梯度计算设置
+            print(f"  Input tensor requires_grad: {img_tensor.requires_grad}")
+            print(f"  Input tensor device: {img_tensor.device}")
+            print(f"  Input tensor dtype: {img_tensor.dtype}")
+            print(f"  Input tensor shape: {img_tensor.shape}")
+            
+            # 在梯度计算上下文中生成 CAM
+            with torch.enable_grad():
+                grayscale_cam = cam(input_tensor=img_tensor, targets=target_class)
+            
+            print(f"  Grad-CAM generated successfully, shape: {grayscale_cam.shape}")
             
             # 调整到原始尺寸
             gradcam_resized = cv2.resize(grayscale_cam[0], (original_size[1], original_size[0]))

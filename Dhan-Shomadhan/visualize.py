@@ -39,22 +39,93 @@ class GradCAMVisualizer:
 
         return last_conv
 
+    def _find_target_layer_for_api(self, torch_model):
+        """为 pytorch-grad-cam API 找到合适的目标层"""
+        for name, module in torch_model.named_modules():
+            if isinstance(module, torch.nn.Conv2d):
+                # 选择较深的卷积层
+                if any(keyword in name.lower() for keyword in ['backbone', 'neck', 'head']):
+                    return module
+        return None
+
+    def _preprocess_for_api(self, image_path):
+        """为 API 预处理图像"""
+        img = cv2.imread(str(image_path))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        
+        # 保存原始尺寸
+        original_size = img.shape[:2]
+        
+        # 调整尺寸
+        img_resized = cv2.resize(img, (self.config.imgsz, self.config.imgsz))
+        
+        # 归一化
+        img_normalized = img_resized.astype(np.float32) / 255.0
+        
+        # 转换为张量
+        img_tensor = torch.from_numpy(img_normalized).permute(2, 0, 1).unsqueeze(0)
+        img_tensor = img_tensor.to('cuda' if torch.cuda.is_available() else 'cpu')
+        
+        return img_tensor, img_resized, original_size
+
     def generate_gradcam(self, model, image_path, target_class=None):
-        """Generate Grad-CAM heatmap for a single image using true YOLO attention"""
+        """Generate Grad-CAM heatmap using pytorch-grad-cam API and custom YOLO implementation"""
+        # 方法1: 尝试使用 pytorch-grad-cam API (推荐)
         try:
-            # 使用真正的 YOLO Grad-CAM
+            from pytorch_grad_cam import GradCAM
+            from pytorch_grad_cam.utils.image import show_cam_on_image
+            
+            # 获取 PyTorch 模型
+            torch_model = model.model
+            torch_model.eval()
+            
+            # 找到目标层
+            target_layer = self._find_target_layer_for_api(torch_model)
+            if target_layer is None:
+                raise ValueError("No suitable target layer found")
+            
+            # 创建 Grad-CAM
+            cam = GradCAM(model=torch_model, target_layers=[target_layer])
+            
+            # 预处理图像
+            img_tensor, img_resized, original_size = self._preprocess_for_api(image_path)
+            
+            # 生成 CAM
+            grayscale_cam = cam(input_tensor=img_tensor, targets=target_class)
+            
+            # 调整到原始尺寸
+            gradcam_resized = cv2.resize(grayscale_cam[0], (original_size[1], original_size[0]))
+            
+            # 获取预测结果
+            with torch.no_grad():
+                outputs = torch_model(img_tensor)
+                if hasattr(outputs, 'probs'):
+                    pred_probs = outputs.probs.data.cpu().numpy()
+                    pred_class = outputs.probs.top1
+                else:
+                    pred_probs = torch.softmax(outputs, dim=1).cpu().detach().numpy()[0]
+                    pred_class = outputs.argmax(dim=1).item()
+            
+            print(f"  Successfully generated Grad-CAM using pytorch-grad-cam API for {os.path.basename(image_path)}")
+            return gradcam_resized, pred_probs, pred_class
+            
+        except Exception as e:
+            print(f"  pytorch-grad-cam API failed for {os.path.basename(image_path)}: {e}")
+        
+        # 方法2: 使用自定义的 YOLO Grad-CAM
+        try:
             yolo_gradcam = YOLOGradCAM(model.ckpt_path, device='cuda' if torch.cuda.is_available() else 'cpu')
             gradcam_map, pred_probs, pred_class = yolo_gradcam.generate_gradcam(image_path, target_class)
             
             if gradcam_map is not None:
-                print(f"  Successfully generated true YOLO attention for {os.path.basename(image_path)}")
+                print(f"  Successfully generated custom YOLO attention for {os.path.basename(image_path)}")
                 return gradcam_map, pred_probs, pred_class
             else:
-                print(f"  True YOLO attention failed for {os.path.basename(image_path)}, trying fallback")
+                print(f"  Custom YOLO attention failed for {os.path.basename(image_path)}, trying fallback")
                 return self.generate_gradcam_fallback(model, image_path, target_class)
                 
         except Exception as e:
-            print(f"  True YOLO attention error for {os.path.basename(image_path)}: {e}")
+            print(f"  Custom YOLO attention error for {os.path.basename(image_path)}: {e}")
             return self.generate_gradcam_fallback(model, image_path, target_class)
     
     def generate_gradcam_fallback(self, model, image_path, target_class=None):
@@ -225,12 +296,14 @@ class GradCAMVisualizer:
 
 
 def visualize_gradcam(config, fold_num=None):
-    """Main function for true YOLO attention visualization"""
+    """Main function for YOLO attention visualization"""
     print("\n" + "="*60)
-    print("TRUE YOLO ATTENTION MECHANISM VISUALIZATION")
+    print("YOLO ATTENTION MECHANISM VISUALIZATION")
     print("="*60)
-    print("This visualization uses the actual YOLO model's attention mechanism")
-    print("to generate Grad-CAM heatmaps that reflect what the model truly focuses on.")
+    print("This visualization uses two methods to generate Grad-CAM heatmaps:")
+    print("1. pytorch-grad-cam API (recommended)")
+    print("2. Custom YOLO attention mechanism")
+    print("3. Fallback method (original implementation)")
     print("="*60)
     
     visualizer = GradCAMVisualizer(config)

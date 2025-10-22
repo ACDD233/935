@@ -41,14 +41,23 @@ class GradCAMVisualizer:
 
     def _find_target_layer_for_api(self, torch_model):
         """为 pytorch-grad-cam API 找到合适的目标层"""
+        conv_layers = []
         for name, module in torch_model.named_modules():
             if isinstance(module, torch.nn.Conv2d):
-                # 选择较深的卷积层
-                if any(keyword in name.lower() for keyword in ['backbone', 'neck', 'head']):
+                conv_layers.append((name, module))
+        
+        # 如果没有找到特定的层，返回最后一个卷积层
+        if conv_layers:
+            # 优先选择较深的层
+            for name, module in reversed(conv_layers):
+                if any(keyword in name.lower() for keyword in ['backbone', 'neck', 'head', 'm.', 'c2f']):
                     return module
+            # 如果没找到特定的，返回最后一个
+            return conv_layers[-1][1]
+        
         return None
 
-    def _preprocess_for_api(self, image_path):
+    def _preprocess_for_api(self, image_path, device):
         """为 API 预处理图像"""
         img = cv2.imread(str(image_path))
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
@@ -64,7 +73,7 @@ class GradCAMVisualizer:
         
         # 转换为张量
         img_tensor = torch.from_numpy(img_normalized).permute(2, 0, 1).unsqueeze(0)
-        img_tensor = img_tensor.to('cuda' if torch.cuda.is_available() else 'cpu')
+        img_tensor = img_tensor.to(device)
         
         return img_tensor, img_resized, original_size
 
@@ -79,16 +88,22 @@ class GradCAMVisualizer:
             torch_model = model.model
             torch_model.eval()
             
+            # 确保模型在正确的设备上
+            device = next(torch_model.parameters()).device
+            torch_model = torch_model.to(device)
+            
             # 找到目标层
             target_layer = self._find_target_layer_for_api(torch_model)
             if target_layer is None:
                 raise ValueError("No suitable target layer found")
             
+            print(f"  Using target layer: {target_layer}")
+            
             # 创建 Grad-CAM
             cam = GradCAM(model=torch_model, target_layers=[target_layer])
             
             # 预处理图像
-            img_tensor, img_resized, original_size = self._preprocess_for_api(image_path)
+            img_tensor, img_resized, original_size = self._preprocess_for_api(image_path, device)
             
             # 生成 CAM
             grayscale_cam = cam(input_tensor=img_tensor, targets=target_class)

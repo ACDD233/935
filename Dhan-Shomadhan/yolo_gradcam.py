@@ -30,6 +30,13 @@ class YOLOGradCAM:
         self.torch_model = self.yolo_model.model
         self.torch_model.eval()
         
+        # 确保模型在正确的设备上
+        if torch.cuda.is_available() and self.device == 'cuda':
+            self.torch_model = self.torch_model.cuda()
+        else:
+            self.torch_model = self.torch_model.cpu()
+            self.device = 'cpu'
+        
         # 存储 hook 信息
         self.features = {}
         self.gradients = {}

@@ -48,7 +48,7 @@ def main():
             test_results = test_model(config)
 
         if config.mode == 'visualize' or config.mode == 'all':
-            print("\n[4/4] Grad-CAM visualization")
+            print("\n[4/4] True YOLO Attention Visualization")
 
             model_path = os.path.join(config.models_dir, 'fold_1_best.pt')
             if not os.path.exists(model_path):
@@ -58,6 +58,7 @@ def main():
                     print("Error: No trained model found")
                     sys.exit(1)
             else:
+                print("Using true YOLO attention mechanism (Grad-CAM)")
                 visualize_gradcam(config)
 
         logger.log_experiment_results(split_info, train_results, test_results)

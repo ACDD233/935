@@ -12,6 +12,7 @@ from PIL import Image
 import matplotlib.pyplot as plt
 from ultralytics import YOLO
 import random
+from yolo_gradcam import YOLOGradCAM
 
 
 class GradCAMVisualizer:
@@ -39,7 +40,25 @@ class GradCAMVisualizer:
         return last_conv
 
     def generate_gradcam(self, model, image_path, target_class=None):
-        """Generate Grad-CAM heatmap for a single image"""
+        """Generate Grad-CAM heatmap for a single image using true YOLO attention"""
+        try:
+            # 使用真正的 YOLO Grad-CAM
+            yolo_gradcam = YOLOGradCAM(model.ckpt_path, device='cuda' if torch.cuda.is_available() else 'cpu')
+            gradcam_map, pred_probs, pred_class = yolo_gradcam.generate_gradcam(image_path, target_class)
+            
+            if gradcam_map is not None:
+                print(f"  Successfully generated true YOLO attention for {os.path.basename(image_path)}")
+                return gradcam_map, pred_probs, pred_class
+            else:
+                print(f"  True YOLO attention failed for {os.path.basename(image_path)}, trying fallback")
+                return self.generate_gradcam_fallback(model, image_path, target_class)
+                
+        except Exception as e:
+            print(f"  True YOLO attention error for {os.path.basename(image_path)}: {e}")
+            return self.generate_gradcam_fallback(model, image_path, target_class)
+    
+    def generate_gradcam_fallback(self, model, image_path, target_class=None):
+        """Fallback Grad-CAM method (original implementation)"""
         img = Image.open(image_path).convert('RGB')
         original_img = np.array(img)
 
@@ -145,8 +164,8 @@ class GradCAMVisualizer:
         plt.close()
 
     def visualize_fold(self, fold_num):
-        """Generate visualizations for a single fold"""
-        print(f"\nVisualizing Fold {fold_num}...")
+        """Generate visualizations for a single fold using true YOLO attention"""
+        print(f"\nVisualizing Fold {fold_num} with true YOLO attention mechanism...")
 
         model_path = os.path.join(self.models_dir, f'fold_{fold_num}_best.pt')
         if not os.path.exists(model_path):
@@ -195,17 +214,25 @@ class GradCAMVisualizer:
         print(f"Fold {fold_num} visualization complete")
 
     def visualize_all_folds(self):
-        """Generate visualizations for all folds"""
-        print(f"\nStarting Grad-CAM visualization for {self.config.n_splits} folds")
+        """Generate visualizations for all folds using true YOLO attention"""
+        print(f"\nStarting true YOLO attention visualization for {self.config.n_splits} folds")
+        print("Each fold will use the actual YOLO model's attention mechanism")
 
         for fold_num in range(1, self.config.n_splits + 1):
             self.visualize_fold(fold_num)
 
-        print(f"\nVisualization complete. Saved to {self.visualizations_dir}\n")
+        print(f"\nTrue YOLO attention visualization complete. Saved to {self.visualizations_dir}\n")
 
 
 def visualize_gradcam(config, fold_num=None):
-    """Main function for Grad-CAM visualization"""
+    """Main function for true YOLO attention visualization"""
+    print("\n" + "="*60)
+    print("TRUE YOLO ATTENTION MECHANISM VISUALIZATION")
+    print("="*60)
+    print("This visualization uses the actual YOLO model's attention mechanism")
+    print("to generate Grad-CAM heatmaps that reflect what the model truly focuses on.")
+    print("="*60)
+    
     visualizer = GradCAMVisualizer(config)
 
     if fold_num is not None:

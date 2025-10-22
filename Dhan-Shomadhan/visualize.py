@@ -77,6 +77,22 @@ class GradCAMVisualizer:
         
         return img_tensor, img_resized, original_size
 
+    def _create_model_wrapper(self, torch_model):
+        """创建模型包装器来处理 YOLO 的输出格式"""
+        class ModelWrapper(torch.nn.Module):
+            def __init__(self, model):
+                super(ModelWrapper, self).__init__()
+                self.model = model
+            
+            def forward(self, x):
+                output = self.model(x)
+                # 如果输出是元组，只返回第一个元素（主输出）
+                if isinstance(output, tuple):
+                    return output[0]
+                return output
+        
+        return ModelWrapper(torch_model)
+
     def generate_gradcam(self, model, image_path, target_class=None):
         """Generate Grad-CAM heatmap using pytorch-grad-cam API and custom YOLO implementation"""
         # 方法1: 尝试使用 pytorch-grad-cam API (推荐)
@@ -89,7 +105,7 @@ class GradCAMVisualizer:
             torch_model.eval()
             
             # 确保模型在正确的设备上
-            device = next(torch_model.parameters()).device
+            device = 'cuda' if torch.cuda.is_available() else 'cpu'
             torch_model = torch_model.to(device)
             
             # 找到目标层
@@ -99,8 +115,11 @@ class GradCAMVisualizer:
             
             print(f"  Using target layer: {target_layer}")
             
+            # 创建模型包装器来处理 YOLO 的输出格式
+            wrapped_model = self._create_model_wrapper(torch_model)
+            
             # 创建 Grad-CAM
-            cam = GradCAM(model=torch_model, target_layers=[target_layer])
+            cam = GradCAM(model=wrapped_model, target_layers=[target_layer])
             
             # 预处理图像
             img_tensor, img_resized, original_size = self._preprocess_for_api(image_path, device)
@@ -115,10 +134,10 @@ class GradCAMVisualizer:
             with torch.no_grad():
                 outputs = torch_model(img_tensor)
                 if hasattr(outputs, 'probs'):
-                    pred_probs = outputs.probs.data.cpu().numpy()
+                    pred_probs = outputs.probs.data.numpy()
                     pred_class = outputs.probs.top1
                 else:
-                    pred_probs = torch.softmax(outputs, dim=1).cpu().detach().numpy()[0]
+                    pred_probs = torch.softmax(outputs, dim=1).detach().numpy()[0]
                     pred_class = outputs.argmax(dim=1).item()
             
             print(f"  Successfully generated Grad-CAM using pytorch-grad-cam API for {os.path.basename(image_path)}")

@@ -10,12 +10,13 @@
 - ✅ **结果自动记录**：自动保存所有配置、超参数和结果到JSON和CSV
 - ✅ **Grad-CAM可视化**：展示模型关注的图像区域
 - ✅ **多模式运行**：支持单独或组合运行各个步骤
+- ✅ **背景过滤测试**：支持按背景类型（白色/田间/混合）进行测试
 
 ## 目录结构
 
-```
-当前目录/
-├── 核心代码
+```text
+项目根目录/
+├── 核心代码文件
 │   ├── config.py              # 配置管理和命令行参数解析
 │   ├── split_dataset.py       # 数据集划分模块
 │   ├── train.py              # 训练模块
@@ -26,23 +27,23 @@
 │   ├── requirements.txt      # 依赖包列表
 │   └── README.md            # 使用说明（本文件）
 │
-├── Field Background  /      # 源数据：Field背景图片
-│   ├── Browon Spot/         # 注意：拼写错误，代码会自动纠正
-│   ├── Leaf Scaled/
-│   ├── Rice Blast/
-│   ├── Rice Turgro/         # 注意：拼写错误，代码会自动纠正
-│   └── Sheath Blight/
-│
-├── White Background /       # 源数据：White背景图片
-│   ├── Brown Spot/
-│   ├── Leaf Scaled/
-│   ├── Rice Blast/
-│   ├── Rice Tungro/
-│   └── Shath Blight/        # 注意：拼写错误，代码会自动纠正
-│
-└── Dhan-Shomadhan/         # 实验结果根目录
-    └── {random_seed}/       # 每个随机种子一个文件夹（如：42/）
-        ├── datasets/        # 数据集划分结果
+└── Dhan-Shomadhan/           # 数据目录
+    ├── Field Background  /   # 源数据：Field背景图片
+    │   ├── Browon Spot/      # 注意：拼写错误，代码会自动纠正
+    │   ├── Leaf Scaled/
+    │   ├── Rice Blast/
+    │   ├── Rice Turgro/      # 注意：拼写错误，代码会自动纠正
+    │   └── Sheath Blight/
+    │
+    ├── White Background /    # 源数据：White背景图片
+    │   ├── Brown Spot/
+    │   ├── Leaf Scaled/
+    │   ├── Rice Blast/
+    │   ├── Rice Tungro/
+    │   └── Shath Blight/     # 注意：拼写错误，代码会自动纠正
+    │
+    └── {random_seed}/        # 实验结果目录（如：42/）
+        ├── datasets/         # 数据集划分结果
         │   ├── split_info.json
         │   ├── fold_1/
         │   │   ├── train/
@@ -53,15 +54,22 @@
         │   │   │   └── Sheath_Blight/
         │   │   └── val/ (同样的5个疾病类别)
         │   └── fold_2/ ... fold_5/
-        ├── models/          # 训练好的模型
+        ├── models/           # 训练好的模型
         │   ├── fold_1_best.pt
         │   ├── fold_1_last.pt
         │   └── ...
-        ├── results/         # 训练结果
+        ├── results/          # 训练结果
         │   ├── fold_1/
         │   ├── training_summary.json
         │   ├── training_results.csv
-        │   └── test_results/
+        │   └── test_results/     # 测试结果
+        │       ├── test_summary_mixed.json    # 所有背景测试结果
+        │       ├── test_summary_white.json    # 白色背景测试结果
+        │       ├── test_summary_field.json    # 田间背景测试结果
+        │       ├── test_results_mixed.csv
+        │       ├── test_results_white.csv
+        │       ├── test_results_field.csv
+        │       └── filtered_data_fold_*_*/    # 背景过滤后的测试数据
         ├── visualizations/  # Grad-CAM可视化结果
         │   └── fold_1/...
         └── logs/           # 实验日志
@@ -133,11 +141,10 @@
 - 如果检测失败，会显示警告信息
 
 **示例输出：**
-```
+```text
 背景文件夹:
   1. 'Field Background  '
   2. 'White Background '
-```
 ```
 
 ## 安装依赖
@@ -255,6 +262,15 @@ python main.py --mode visualize --random_seed 42 --vis_num_samples 10
 --vis_target_layer  # Grad-CAM目标层名称（默认: 自动选择）
 ```
 
+### 测试参数
+
+```bash
+--background        # 背景类型过滤（默认: mixed）
+                    # mixed: 测试所有图片（默认行为）
+                    # white: 只测试文件名包含'wb'的图片（白色背景）
+                    # field: 只测试文件名不包含'wb'的图片（田间背景）
+```
+
 ## 使用示例
 
 ### 示例1: 使用不同的随机种子进行实验
@@ -300,7 +316,28 @@ visualize_gradcam(config, fold_num=1)  # 仅可视化fold 1
 "
 ```
 
-### 示例4: 使用多GPU训练
+### 示例4: 按背景类型进行测试
+
+```bash
+# 测试所有图片（默认行为）
+python main.py --mode test --random_seed 42 --background mixed
+
+# 只测试白色背景图片（文件名包含'wb'）
+python main.py --mode test --random_seed 42 --background white
+
+# 只测试田间背景图片（文件名不包含'wb'）
+python main.py --mode test --random_seed 42 --background field
+```
+
+### 示例5: 组合使用背景过滤和可视化
+
+```bash
+# 先按白色背景测试，然后可视化
+python main.py --mode test --random_seed 42 --background white
+python main.py --mode visualize --random_seed 42 --vis_num_samples 10
+```
+
+### 示例6: 使用多GPU训练
 
 ```bash
 python main.py \
@@ -387,7 +424,7 @@ python main.py --mode test --random_seed 42
 
 A: 数据应该放在当前目录下，结构如下：
 
-```
+```text
 当前目录/
 ├── Field Background  /       # 注意文件夹名有尾随空格
 │   ├── Browon Spot/         # 疾病类别1（会自动纠正拼写）

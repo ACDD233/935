@@ -152,7 +152,7 @@ def parse_args():
     parser.add_argument('--mode', type=str, default='all',
                         choices=['split', 'train', 'test', 'visualize', 'all'],
                         help='Run mode')
-    parser.add_argument('--source_data_dir', type=str, default='./Dhan-Shomadhan',
+    parser.add_argument('--source_data_dir', type=str, default='../Dhan-Shomadhan',
                         help='Source data directory')
     parser.add_argument('--random_seed', type=int, default=42,
                         help='Random seed for reproducibility')
@@ -199,6 +199,11 @@ def parse_args():
     # Visualization
     parser.add_argument('--vis_num_samples', type=int, default=10)
     parser.add_argument('--vis_target_layer', type=str, default=None)
+    
+    # Testing configuration
+    parser.add_argument('--background', type=str, default='mixed',
+                        choices=['mixed', 'white', 'field'],
+                        help='Background type for testing: mixed (all), white (wb images only), field (non-wb images only)')
 
     parser.add_argument('--load_config', type=str, default=None,
                         help='Load config from JSON file')

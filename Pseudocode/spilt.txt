@@ -1,0 +1,21 @@
+class DatasetSplitter:
+    init:
+        load config (paths, mapping, splits, seed)
+        initialize data structures
+    
+    collect_images:
+        for each background_type in backgrounds:
+            for each disease_folder:
+                disease_name = get_mapped_name(disease_folder)
+                images = collect_all_images(disease_folder)
+                store_images_with_labels(images, disease_name)
+        return image_paths, labels
+
+    split_and_save:
+        images, labels = collect_images()
+        for fold in stratified_k_fold(images, labels):
+            create_fold_directories()
+            copy_training_images()
+            copy_validation_images() 
+            save_fold_metadata()
+        save_split_info_to_json()

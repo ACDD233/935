@@ -1,0 +1,104 @@
+Class Tester:
+    init(config):
+        store config
+        set dataset_dir, models_dir, results_dir, n_splits from config
+        set test_results_dir = results_dir/test_results
+        create test_results_dir (if not exists)
+        initialize empty list: test_results
+
+    _filter_test_data(val_data_dir, fold_num):
+        // 根据 config.background (white/field/mixed) 过滤验证集图像
+        create filtered_dir path
+        
+        if background is 'mixed':
+            return val_data_dir
+        
+        clear and create filtered_dir
+        
+        for each class_folder in val_data_dir:
+            create corresponding class_folder in filtered_dir
+            for each image in class_folder:
+                if background is 'white' AND 'wb' in image_name:
+                    copy image to filtered_dir/class_folder
+                elif background is 'field' AND 'wb' NOT in image_name:
+                    copy image to filtered_dir/class_folder
+            endfor
+        endfor
+        
+        if no images were copied:
+            return None
+        else:
+            return filtered_dir
+
+    test_single_fold(fold_num):
+        print "Testing Fold {fold_num}"
+        
+        find model_path (in self.models_dir)
+        if model_path not found, return None
+        
+        find val_data_dir (in self.dataset_dir)
+        if val_data_dir not found, return None
+        
+        // 获取此折的特定测试数据 (mixed, white, or field)
+        filtered_data_dir = call _filter_test_data(val_data_dir, fold_num)
+        if filtered_data_dir is None, return None
+        
+        load YOLO model from model_path
+        
+        try:
+            // 运行评估
+            metrics = model.val(data=filtered_data_dir, split='val', ...)
+            
+            // 记录结果
+            fold_result = {
+                fold: fold_num,
+                background: config.background,
+                top1_accuracy: metrics.top1,
+                top5_accuracy: metrics.top5
+            }
+            append fold_result to self.test_results
+            
+            print "Fold test complete"
+            return fold_result
+            
+        catch Exception as e:
+            print "Error in Fold {fold_num}: {e}"
+            return None
+
+    test_all_folds():
+        print "Starting K-Fold testing (background: {config.background})"
+        
+        for fold_num from 1 to n_splits:
+            call test_single_fold(fold_num)
+        endfor
+        
+        call save_results()
+        return self.test_results
+
+    save_results():
+        if test_results is empty, return
+        
+        // 计算 K-Fold 的统计数据
+        calculate mean, std, min, max of top1_accuracies
+        
+        // 构建摘要
+        summary = {config_details, background_type, test_results, aggregate_stats (mean, std)}
+        
+        // 保存文件 (文件名包含背景类型)
+        save summary to "test_summary_{background}.json"
+        save test_results list to "test_results_{background}.csv"
+        
+        print "Testing complete - Mean Top1: {mean} ± {std}"
+
+
+Function test_model(config, fold_num=None):
+    tester = create Tester(config)
+    
+    if testing single fold (fold_num is set):
+        result = tester.test_single_fold(fold_num)
+        tester.test_results = [result] // 仅包含当前折的结果
+    else: // testing all folds
+        result = tester.test_all_folds()
+        
+    tester.save_results() // 保存单个或所有折的摘要
+    return result

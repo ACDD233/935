@@ -1,0 +1,72 @@
+Class Trainer:
+    init(config):
+        // 存储配置和路径
+        store config, dataset_dir, models_dir, results_dir, n_splits
+        create models_dir and results_dir (if not exists)
+        initialize empty list: fold_results
+
+    train_single_fold(fold_num):
+        print "Training Fold {fold_num}"
+        set fold_data_dir = dataset_dir/fold_{fold_num}
+        
+        initialize YOLO model (config.model_name)
+        
+        // 从config构建训练参数字典
+        build train_args dictionary (data=fold_data_dir, epochs, batch, lr, etc.)
+        
+        try:
+            // 运行训练
+            results = model.train(train_args)
+            
+            // 复制训练结果（最佳和最后一个模型）
+            copy 'best.pt' from result_path to models_dir
+            copy 'last.pt' from result_path to models_dir
+            
+            // 记录此折的指标
+            fold_result = {fold, top1_accuracy, top5_accuracy, model_path}
+            append fold_result to self.fold_results
+            
+            print "Fold complete"
+            return fold_result
+            
+        catch Exception as e:
+            print "Error in Fold {fold_num}: {e}"
+            return None
+
+    train_all_folds():
+        print "Starting K-Fold training"
+        
+        for fold_num from 1 to n_splits:
+            call train_single_fold(fold_num)
+        endfor
+        
+        call save_results()
+        return self.fold_results
+
+    save_results():
+        if fold_results is empty, return
+        
+        // 计算K-Fold的统计数据
+        calculate mean, std, min, max of top1_accuracies
+        
+        // 构建摘要
+        summary = {config_details, fold_results, aggregate_stats (mean, std)}
+        
+        // 保存文件
+        save summary to "training_summary.json"
+        save fold_results list to "training_results.csv"
+        
+        print "Training complete - Mean Top1: {mean} ± {std}"
+
+
+Function train_model(config, fold_num=None):
+    trainer = create Trainer(config)
+    
+    if training single fold (fold_num is set):
+        result = trainer.train_single_fold(fold_num)
+        trainer.fold_results = [result] // 仅包含当前折的结果
+    else: // training all folds
+        result = trainer.train_all_folds()
+        
+    trainer.save_results() // 保存单个或所有折的摘要
+    return result

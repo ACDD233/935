@@ -1,183 +1,22 @@
-Class GradCAMVisualizer:
-    init(config):
-        // 存储配置和路径
-        store config
-        store models_dir, dataset_dir, visualizations_dir
-        store num_samples (要可视化的样本数)
-        create visualizations_dir (if not exists)
+Class GradCAMVisualizer (可视化类):
 
-    get_last_conv_layer(model):
-        // 查找并返回YOLO PyTorch模型中的最后一个卷积层
-        last_conv = None
-        for layer in model:
-            if layer is Conv2d:
-                last_conv = layer
-        return last_conv
+    Function visualize_all_folds:
+        // 循环所有 K-Fold
+        for fold from 1 to N_splits:
+            call visualize_fold(fold)
 
-    _find_target_layer_for_api(torch_model):
-        // (辅助) 为 pytorch-grad-cam API 查找最佳目标层
-        collect all Conv2d layers
-        // 优先选择更深的层或特定名称的层
-        iterate layers backward:
-            if layer name matches keywords ('head', 'c2f', etc.):
-                return layer
-        return last Conv2d layer found
-
-    _preprocess_for_api(image_path, device):
-        // (辅助) 为 pytorch-grad-cam API 预处理图像
-        load image (OpenCV) -> RGB
-        store original_size
-        resize image to config.imgsz
-        normalize image (to 0-1)
-        convert to Tensor (B, C, H, W)
-        move tensor to device
-        return img_tensor, resized_image_array, original_size
-
-    _create_model_wrapper(torch_model):
-        // (辅助) 创建一个包装器来标准化YOLO的输出
-        Define Class ModelWrapper(torch.nn.Module):
-            init(model):
-                store model
-                set model to train() mode (to enable gradients)
+    Function visualize_fold(fold_num):
+        // 1. 加载此折 (fold) 的模型
+        model = load_model(fold_num)
+        
+        // 2. 从每个 (类别) folder 中取 N 张图片
+        for each class_folder in validation_set:
+            sample_images = get_random_images(class_folder, N_samples)
             
-            forward(x):
-                ensure x is on model's device and requires grad
-                enable gradient context:
-                    output = model(x)
-                // YOLO可能输出元组，我们只需要分类得分
-                if output is tuple:
-                    return output[0]
-                return output
+            for image in sample_images:
+                // 3. 调用 API (生成热图)
+                heatmap = call generate_gradcam_api(model, image)
                 
-        return instance of ModelWrapper(torch_model)
-
-    generate_gradcam(model, image_path, target_class=None):
-        // --- 方法 1: 尝试使用 pytorch-grad-cam API ---
-        try:
-            get torch_model from model
-            find target_layer using _find_target_layer_for_api()
-            create wrapped_model using _create_model_wrapper()
-            
-            // 初始化 GradCAM
-            cam = GradCAM(model=wrapped_model, target_layers=[target_layer])
-            
-            // 预处理图像
-            img_tensor, ... = _preprocess_for_api(image_path)
-            
-            // 生成 CAM
-            enable gradient context:
-                grayscale_cam = cam(input_tensor=img_tensor)
-            
-            resize cam to original image size
-            get model prediction (class, probabilities)
-            
-            return gradcam_resized, pred_probs, pred_class
-            
-        // --- 方法 2: API 失败，回退到原始实现 ---
-        catch Exception as e:
-            print "API failed, using fallback"
-            return call generate_gradcam_fallback(model, image_path, target_class)
-
-    generate_gradcam_fallback(model, image_path, target_class=None):
-        // (备用方法) 手动实现 Grad-CAM
-        load and preprocess image (using preprocess_image)
-        get torch_model
-        
-        initialize empty lists: features, gradients
-        define forward_hook (to capture features)
-        define backward_hook (to capture gradients)
-        
-        target_layer = get_last_conv_layer(model)
-        register hooks to target_layer
-        
-        // 前向传播
-        output = torch_model(img_tensor)
-        if target_class is None:
-            target_class = output.argmax()
-            
-        // 反向传播
-        model.zero_grad()
-        class_score = output[0, target_class]
-        class_score.backward()
-        
-        remove hooks
-        
-        // 计算 CAM
-        gradient = gradients[0]
-        feature = features[0]
-        weights = global_average_pool(gradient)
-        cam = weighted_sum(features, weights)
-        cam = ReLU(cam)
-        normalize cam
-        resize cam to original image size
-        
-        return cam, output.softmax(), target_class
-
-    preprocess_image(img, size):
-        // (辅助) 备用方法的图像预处理
-        resize image (PIL)
-        convert to numpy, normalize (to 0-1)
-        transpose to (C, H, W)
-        convert to Tensor (B, C, H, W)
-        return img_tensor
-
-    visualize_cam(image_path, heatmap, prediction, class_names, save_path):
-        // 将 heatmap 叠加到原始图像上并保存
-        load original_image (OpenCV)
-        apply colormap to heatmap
-        superimposed_img = weighted_add(original_image, colored_heatmap)
-        
-        create matplotlib figure (1 row, 3 columns):
-            plot[0] = original_image
-            plot[1] = heatmap
-            plot[2] = superimposed_img
-        
-        set title for plot[2] using prediction and class_names
-        save figure to save_path
-        close figure
-
-    visualize_fold(fold_num):
-        print "Visualizing Fold {fold_num}"
-        
-        load model for fold_num
-        if model not found, return
-        
-        get validation data directory (val_dir)
-        get class_names from val_dir subfolders
-        create output directory (fold_vis_dir)
-        
-        calculate samples_per_class
-        
-        for class_name in class_names:
-            get image_files from class_dir
-            select random samples (based on samples_per_class)
-            
-            for img_file in selected_samples:
-                try:
-                    // 生成热图
-                    heatmap, prediction, ... = generate_gradcam(model, img_path)
-                    
-                    if heatmap is valid:
-                        // 保存可视化结果
-                        save_path = ...
-                        visualize_cam(img_path, heatmap, prediction, class_names, save_path)
-                catch Exception as e:
-                    print "Failed {img_file}: {e}"
-        
-        print "Fold visualization complete"
-
-    visualize_all_folds():
-        print "Starting visualization for all folds"
-        for fold_num from 1 to n_splits:
-            call visualize_fold(fold_num)
-        print "Visualization complete"
-
-
-Function visualize_gradcam(config, fold_num=None):
-    print "Starting YOLO Attention Visualization"
-    visualizer = create GradCAMVisualizer(config)
-    
-    if visualizing single fold (fold_num is set):
-        visualizer.visualize_fold(fold_num)
-    else: // visualizing all folds
-        visualizer.visualize_all_folds()
+                // 4. 获得 (并保存) 结果图片
+                // (将原图、热图、叠加图合并保存)
+                save_visualization(image, heatmap)
